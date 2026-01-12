@@ -17,11 +17,11 @@ from llama_index.core.schema import NodeWithScore
 from llama_index.core.query_engine import RetrieverQueryEngine, RouterQueryEngine
 from llama_index.core.tools import QueryEngineTool
 from llama_index.core.selectors import LLMSingleSelector
-from llama_index.llms.google_genai import GoogleGenAI
 from dotenv import load_dotenv
 import re
 from .retrieval import configure_settings, create_hybrid_retriever
 from .logger import SessionLogger
+from .api_config import get_chat_llm
 
 load_dotenv()
 
@@ -111,12 +111,13 @@ def compress_if_needed(nodes: List[NodeWithScore], max_tokens: int = 18000) -> L
 class TaskSpecificRetriever:
     """Custom retriever with task-specific parameters and paper-aware MMR."""
     def __init__(self, index: VectorStoreIndex, top_k: int, top_n: int, 
-                 lambda_param: float, max_tokens: int):
+                 lambda_param: float, max_tokens: int, logger: Optional[SessionLogger] = None):
         self.index = index
         self.top_k = top_k
         self.top_n = top_n
         self.lambda_param = lambda_param
         self.max_tokens = max_tokens
+        self.logger = logger
     
     def retrieve(self, query: str) -> List[NodeWithScore]:
         """Retrieve, apply MMR, compress, and format with citations."""
@@ -342,7 +343,7 @@ def create_router_engine(index: VectorStoreIndex, logger: Optional[SessionLogger
     ]
     
     # Create router with lighter LLM for selection (saves quota)
-    router_llm = GoogleGenAI(model="models/gemini-2.5-flash-lite", temperature=0.1)
+    router_llm = get_chat_llm(temperature=0.1)
     return RouterQueryEngine(
         selector=LLMSingleSelector.from_defaults(llm=router_llm),
         query_engine_tools=tools,

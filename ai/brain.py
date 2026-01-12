@@ -15,7 +15,6 @@ import requests
 import feedparser
 import asyncio
 import time
-from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 import chromadb
@@ -25,6 +24,7 @@ import os
 from .fetcher import ingest_arxiv_paper
 from .rag import multi_paper_rag_with_documents
 from .logger import SessionLogger
+from .api_config import get_brain_llm
 
 load_dotenv()
 
@@ -65,9 +65,6 @@ class BrainState:
 # Global state instance
 state = BrainState()
 
-# LLM instance (reused across functions)
-llm = GoogleGenAI(model="models/gemini-2.5-flash-lite", temperature=0.1)
-
 
 # ===============
 # CORE FUNCTIONS
@@ -84,6 +81,8 @@ async def semantic_rewrite(query: str, logger: Optional[SessionLogger] = None) -
     Returns:
         Optimized search string (concise, keyword-focused)
     """
+    llm = get_brain_llm(temperature=0.1)
+    
     prompt = f"""You are a research paper search optimizer. Rewrite the user's query into an optimal arXiv search string.
 
 CONSTRAINTS:
@@ -334,6 +333,8 @@ async def route_user_query(user_input: str, papers_loaded: bool, logger: Optiona
     Returns:
         {"action": "quit" | "switch" | "agent", "message": str}
     """
+    llm = get_brain_llm(temperature=0.1)
+    
     prompt = f"""You are a query intent classifier for a research paper discovery system.
 
 CONTEXT:
@@ -441,6 +442,7 @@ async def paper_brain_interface(logger: Optional[SessionLogger] = None):
     )
     
     # Create agent with memory
+    llm = get_brain_llm(temperature=0.1)
     agent = ReActAgent(
         tools=[search_tool, load_tool],
         llm=llm,

@@ -8,20 +8,23 @@ from llama_index.core import Document
 from pypdf import PdfReader
 
 
-def ingest_arxiv_paper(title: str) -> Optional[List[Document]]:
+def ingest_arxiv_paper(arxiv_id: str) -> Optional[List[Document]]:
     """
-    Fetch arXiv paper by title and return as Document objects.
+    Fetch arXiv paper by ID and return as Document objects.
     
     Args:
-        title: Exact paper title to search
+        arxiv_id: arXiv ID (e.g., "2301.12345" or "2301.12345v1")
         
     Returns:
         List[Document] with metadata, or None if not found
     """
-    # Query arXiv API
+    # Strip version suffix if present (e.g., "2301.12345v1" -> "2301.12345")
+    clean_id = arxiv_id.split('v')[0] if 'v' in arxiv_id else arxiv_id
+    
+    # Query arXiv API by ID
     api_url = "http://export.arxiv.org/api/query"
     params = {
-        'search_query': f'ti:"{title}"',
+        'id_list': clean_id,
         'max_results': 1
     }
     
@@ -32,7 +35,7 @@ def ingest_arxiv_paper(title: str) -> Optional[List[Document]]:
     feed = feedparser.parse(response.content)
     
     if not feed.entries:
-        print(f"No results found for: {title}")
+        print(f"No results found for: {arxiv_id}")
         return None
     
     entry = feed.entries[0]

@@ -1,21 +1,27 @@
 """Hybrid Retrieval & RAG Configuration: Shared utilities for retrieval."""
 
-from typing import List
+from typing import List, Optional
 from llama_index.core import VectorStoreIndex, Settings, PromptTemplate, Document
-from llama_index.llms.google_genai import GoogleGenAI 
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from dotenv import load_dotenv
+from .api_config import get_chat_llm, get_embedding_model
 
 load_dotenv()
 
 
-def configure_settings():
+def configure_settings(llm=None):
     """Configure global LLM and embedding settings."""
-    llm = GoogleGenAI(model="models/gemini-2.5-flash-lite", temperature=0.1)
-    embed_model = GoogleGenAIEmbedding(model_name="models/text-embedding-004")
+    if llm is None:
+        llm = get_chat_llm(temperature=0.1)
+    
+    embedding_config = get_embedding_model()
+    embed_model = GoogleGenAIEmbedding(
+        model_name=embedding_config["model_name"],
+        api_key=embedding_config["api_key"]
+    )
     
     Settings.llm = llm
     Settings.embed_model = embed_model
