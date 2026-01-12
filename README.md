@@ -1,10 +1,10 @@
-# Physics Paper Search Engine
+# Research Paper Search Engine
 
-Advanced semantic search system for physics research papers with LLM-powered query expansion and multi-stage retrieval.
+Advanced semantic search system for arXiv research papers with LLM-powered query expansion and multi-stage retrieval.
 
 ## Features
 
-- **LLM Query Expansion**: Physics-aware query expansion using Gemini 2.5 Flash
+- **LLM Query Expansion**: Domain-aware query expansion using Gemini 2.5 Flash Lite
 - **Dense Retrieval**: Fast vector search using ChromaDB and sentence-transformers
 - **Cross-Encoder Re-Ranking**: Improved relevance with cross-encoder models
 - **MMR Diversification**: Maximal Marginal Relevance for diverse results
