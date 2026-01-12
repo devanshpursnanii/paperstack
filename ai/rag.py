@@ -9,8 +9,9 @@ Architecture:
 5. Token compression for optimal context
 """
 
-from typing import List
+from typing import List, Optional
 import numpy as np
+import time
 from llama_index.core import VectorStoreIndex, Document, PromptTemplate
 from llama_index.core.schema import NodeWithScore
 from llama_index.core.query_engine import RetrieverQueryEngine, RouterQueryEngine
@@ -20,6 +21,7 @@ from llama_index.llms.google_genai import GoogleGenAI
 from dotenv import load_dotenv
 import re
 from .retrieval import configure_settings, create_hybrid_retriever
+from .logger import SessionLogger
 
 load_dotenv()
 
@@ -129,6 +131,19 @@ class TaskSpecificRetriever:
         # Compress if needed
         compressed_nodes = compress_if_needed(diverse_nodes, max_tokens=self.max_tokens)
         
+        # Log RAG chunks (after MMR and compression - these are the final chunks used)
+        if self.logger:
+            for node in compressed_nodes:
+                title = node.metadata.get('title', 'Unknown Paper')
+                page = node.metadata.get('page_label', '?')
+                self.logger.log_rag_chunk(
+                    text=node.node.text,
+                    score=node.score,
+                    source=f"{title} (Page {page})",
+                    metadata=node.metadata,
+                    retrieval_method="hybrid_mmr_compressed"
+                )
+        
         # Format nodes with citation metadata
         for node in compressed_nodes:
             title = node.metadata.get('title', 'Unknown Paper')
@@ -140,9 +155,10 @@ class TaskSpecificRetriever:
 
 
 def create_task_engine(index: VectorStoreIndex, top_k: int, top_n: int, 
-                       lambda_param: float, max_tokens: int, prompt: PromptTemplate) -> RetrieverQueryEngine:
+                       lambda_param: float, max_tokens: int, prompt: PromptTemplate,
+                       logger: Optional[SessionLogger] = None) -> RetrieverQueryEngine:
     """Create task-specific query engine with custom retrieval parameters."""
-    retriever = TaskSpecificRetriever(index, top_k, top_n, lambda_param, max_tokens)
+    retriever = TaskSpecificRetriever(index, top_k, top_n, lambda_param, max_tokens, logger)
     
     return RetrieverQueryEngine.from_args(
         retriever=retriever,
@@ -200,7 +216,7 @@ def get_task_prompts():
     }
 
 
-def create_qa_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQueryEngine:
+def create_qa_engine(index: VectorStoreIndex, prompts: dict, logger: Optional[SessionLogger] = None) -> RetrieverQueryEngine:
     """QA engine: precise, focused answers."""
     return create_task_engine(
         index=index,
@@ -208,11 +224,12 @@ def create_qa_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQueryEn
         top_n=3,
         lambda_param=0.5,
         max_tokens=10000,
-        prompt=prompts["qa"]
+        prompt=prompts["qa"],
+        logger=logger
     )
 
 
-def create_summarize_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQueryEngine:
+def create_summarize_engine(index: VectorStoreIndex, prompts: dict, logger: Optional[SessionLogger] = None) -> RetrieverQueryEngine:
     """Summarization engine: broad, comprehensive coverage."""
     return create_task_engine(
         index=index,
@@ -220,11 +237,12 @@ def create_summarize_engine(index: VectorStoreIndex, prompts: dict) -> Retriever
         top_n=8,
         lambda_param=0.8,
         max_tokens=25000,
-        prompt=prompts["summarize"]
+        prompt=prompts["summarize"],
+        logger=logger
     )
 
 
-def create_compare_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQueryEngine:
+def create_compare_engine(index: VectorStoreIndex, prompts: dict, logger: Optional[SessionLogger] = None) -> RetrieverQueryEngine:
     """Comparison engine: multi-paper analysis."""
     return create_task_engine(
         index=index,
@@ -232,11 +250,12 @@ def create_compare_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQu
         top_n=8,
         lambda_param=0.7,
         max_tokens=20000,
-        prompt=prompts["compare"]
+        prompt=prompts["compare"],
+        logger=logger
     )
 
 
-def create_explain_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQueryEngine:
+def create_explain_engine(index: VectorStoreIndex, prompts: dict, logger: Optional[SessionLogger] = None) -> RetrieverQueryEngine:
     """Explanation engine: conceptual deep-dive."""
     return create_task_engine(
         index=index,
@@ -244,7 +263,8 @@ def create_explain_engine(index: VectorStoreIndex, prompts: dict) -> RetrieverQu
         top_n=6,
         lambda_param=0.6,
         max_tokens=18000,
-        prompt=prompts["explain"]
+        prompt=prompts["explain"],
+        logger=logger
     )
 
 
@@ -271,15 +291,15 @@ def analyze_citations(response_text: str) -> dict:
     }
 
 
-def create_router_engine(index: VectorStoreIndex) -> RouterQueryEngine:
+def create_router_engine(index: VectorStoreIndex, logger: Optional[SessionLogger] = None) -> RouterQueryEngine:
     """Create router that selects appropriate task-specific engine."""
     prompts = get_task_prompts()
     
     # Create task-specific engines
-    qa_engine = create_qa_engine(index, prompts)
-    summarize_engine = create_summarize_engine(index, prompts)
-    compare_engine = create_compare_engine(index, prompts)
-    explain_engine = create_explain_engine(index, prompts)
+    qa_engine = create_qa_engine(index, prompts, logger)
+    summarize_engine = create_summarize_engine(index, prompts, logger)
+    compare_engine = create_compare_engine(index, prompts, logger)
+    explain_engine = create_explain_engine(index, prompts, logger)
     
     # Wrap in QueryEngineTool with descriptions
     tools = [
@@ -330,13 +350,14 @@ def create_router_engine(index: VectorStoreIndex) -> RouterQueryEngine:
     )
 
 
-def multi_paper_rag_with_documents(documents: List[Document], query: str):
+def multi_paper_rag_with_documents(documents: List[Document], query: str, logger: Optional[SessionLogger] = None):
     """
     Multi-paper RAG with pre-loaded documents (from Paper Brain).
     
     Args:
         documents: Already loaded Document objects
         query: User query (router will classify task type)
+        logger: Optional session logger
     
     Returns:
         LLM response with cross-paper citations
@@ -355,12 +376,25 @@ def multi_paper_rag_with_documents(documents: List[Document], query: str):
     
     # Create router
     print("Creating intelligent router...\n")
-    router = create_router_engine(index)
+    router = create_router_engine(index, logger)
     
-    # Query with automatic routing
+    # Query with automatic routing and timing
     print(f"Query: {query}\n")
     print("Routing to appropriate engine...\n")
+    
+    start_time = time.time()
     response = router.query(query)
+    latency_ms = (time.time() - start_time) * 1000
+    
+    # Log router query and final answer generation
+    if logger:
+        logger.log_llm_call(
+            call_type="query_routing_and_answer",
+            input_text=query,
+            output_text=str(response),
+            latency_ms=latency_ms,
+            temperature=0.7
+        )
     
     # Analyze citations
     citation_stats = analyze_citations(str(response))

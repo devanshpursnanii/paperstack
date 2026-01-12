@@ -6,17 +6,21 @@ Components:
 - rag: Multi-paper RAG with intelligent routing
 - retrieval: Hybrid retrieval and configuration
 - fetcher: arXiv paper ingestion
+- logger: Session logging for RAG and API calls
 """
 
 from .brain import paper_brain_interface
 from .rag import multi_paper_rag_with_documents
 from .retrieval import configure_settings, create_hybrid_retriever
 from .fetcher import ingest_arxiv_paper
+from .logger import SessionLogger
 
 __all__ = [
     'paper_brain_interface',
     'multi_paper_rag_with_documents',
     'configure_settings',
     'create_hybrid_retriever',
-    'ingest_arxiv_paper'
+    'ingest_arxiv_paper',
+    'SessionLogger'
 ]
+

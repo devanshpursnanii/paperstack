@@ -37,3 +37,4 @@ run_paper_brain.py
 
 # Logs
 *.log
+logs/

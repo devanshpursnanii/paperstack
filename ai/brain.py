@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 import os
 from .fetcher import ingest_arxiv_paper
 from .rag import multi_paper_rag_with_documents
+from .logger import SessionLogger
 
 load_dotenv()
 
@@ -72,12 +73,13 @@ llm = GoogleGenAI(model="models/gemini-2.5-flash-lite", temperature=0.1)
 # CORE FUNCTIONS
 # ===============
 
-async def semantic_rewrite(query: str) -> str:
+async def semantic_rewrite(query: str, logger: Optional[SessionLogger] = None) -> str:
     """
     Optimize user query for arXiv search using LLM.
     
     Args:
         query: Raw user query
+        logger: Optional session logger
         
     Returns:
         Optimized search string (concise, keyword-focused)
@@ -95,19 +97,34 @@ USER QUERY: "{query}"
 
 OUTPUT (search string only, no explanation):"""
 
+    start_time = time.time()
     response = await llm.acomplete(prompt)
+    latency_ms = (time.time() - start_time) * 1000
+    
     optimized = str(response).strip().strip('"')
+    
+    # Log LLM call
+    if logger:
+        logger.log_llm_call(
+            call_type="semantic_rewrite",
+            input_text=query,
+            output_text=optimized,
+            prompt_preview=prompt,
+            latency_ms=latency_ms,
+            temperature=0.1
+        )
     
     print(f"🔄 Semantic rewrite: '{query}' → '{optimized}'")
     return optimized
 
 
-async def search_and_display(semantic_query: str) -> str:
+async def search_and_display(semantic_query: str, logger: Optional[SessionLogger] = None) -> str:
     """
     Search arXiv, rank by relevance, display top 10 papers.
     
     Args:
         semantic_query: Optimized search query
+        logger: Optional session logger
         
     Returns:
         Formatted display string with papers
@@ -304,7 +321,7 @@ def load_selected_papers(paper_numbers: str) -> str:
 # QUERY ROUTER
 # ==================
 
-async def route_user_query(user_input: str, papers_loaded: bool) -> dict:
+async def route_user_query(user_input: str, papers_loaded: bool, logger: Optional[SessionLogger] = None) -> dict:
     """
     LLM-based query router to classify user intent.
     Foolproof alternative to hardcoded string matching.
@@ -312,6 +329,7 @@ async def route_user_query(user_input: str, papers_loaded: bool) -> dict:
     Args:
         user_input: Raw user input
         papers_loaded: Whether papers are currently loaded
+        logger: Optional session logger
         
     Returns:
         {"action": "quit" | "switch" | "agent", "message": str}
@@ -344,12 +362,26 @@ RESPOND WITH ONLY ONE WORD: QUIT, SWITCH, or AGENT
 CLASSIFICATION:"""
 
     try:
+        start_time = time.time()
         response = await llm.acomplete(prompt)
+        latency_ms = (time.time() - start_time) * 1000
+        
         action = str(response).strip().upper()
         
         # Validate response
         if action not in ['QUIT', 'SWITCH', 'AGENT']:
             action = 'AGENT'  # Default to agent if invalid
+        
+        # Log LLM call
+        if logger:
+            logger.log_llm_call(
+                call_type="intent_routing",
+                input_text=user_input,
+                output_text=action,
+                prompt_preview=prompt,
+                latency_ms=latency_ms,
+                temperature=0.1
+            )
         
         return {"action": action.lower()}
         
@@ -362,9 +394,12 @@ CLASSIFICATION:"""
 # AGENT INTERFACE
 # ================
 
-async def paper_brain_interface():
+async def paper_brain_interface(logger: Optional[SessionLogger] = None):
     """
     Main agent-driven interface with message limit.
+    
+    Args:
+        logger: Optional session logger
     
     Returns:
         List[Document] if papers loaded, None otherwise
@@ -388,8 +423,8 @@ async def paper_brain_interface():
     
     # Initial search (semantic rewrite + search + display)
     print(f"\n{'─'*10}")
-    semantic_query = await semantic_rewrite(initial_query)
-    results = await search_and_display(semantic_query)
+    semantic_query = await semantic_rewrite(initial_query, logger)
+    results = await search_and_display(semantic_query, logger)
     print(results)
     
     # Create agent tools
@@ -451,7 +486,7 @@ async def paper_brain_interface():
             continue
         
         # Route query using LLM
-        route = await route_user_query(user_input, bool(state.loaded_documents))
+        route = await route_user_query(user_input, bool(state.loaded_documents), logger)
         
         # Handle routing decision
         if route["action"] == "quit":
@@ -474,7 +509,20 @@ async def paper_brain_interface():
         
         # Agent processes input
         try:
+            start_time = time.time()
             response = await agent.run(user_input)
+            latency_ms = (time.time() - start_time) * 1000
+            
+            # Log agent reasoning
+            if logger:
+                logger.log_llm_call(
+                    call_type="agent_reasoning",
+                    input_text=user_input,
+                    output_text=str(response),
+                    latency_ms=latency_ms,
+                    temperature=0.1
+                )
+            
             print(f"\n🤖 Assistant: {response}")
             
             # Check if papers loaded
@@ -490,10 +538,18 @@ async def paper_brain_interface():
 # =================
 
 if __name__ == "__main__":
+    # Create logger for standalone execution
+    initial_query = input("🔍 Enter your research query: ").strip()
+    logger = SessionLogger(query_title=initial_query or "Standalone Brain Session", mode="paper_brain")
+    print(f"\n📝 Session started: {logger.session_id}\n")
+    
     # Run Paper Brain agent
-    documents = asyncio.run(paper_brain_interface())
+    documents = asyncio.run(paper_brain_interface(logger))
     
     if documents:
+        # Update mode
+        logger.mode = "multi_paper_rag"
+        
         # Switch to Main RAG
         print(f"\n{'='*80}")
         print(f"{'MAIN RAG CHAT - ASK QUESTIONS ABOUT YOUR PAPERS':^80}")
@@ -504,6 +560,11 @@ if __name__ == "__main__":
             query = input("\n📚 Ask about your papers (or 'quit'): ").strip()
             
             if query.lower() in ['quit', 'exit', 'q']:
+                # Save and show summary
+                log_file = logger.save_session()
+                summary = logger.get_summary()
+                print(f"\n💾 Session saved: {log_file}")
+                print(f"\n📊 LLM calls: {summary['llm_calls_count']} | Tokens: {summary['total_input_tokens'] + summary['total_output_tokens']}")
                 print("\n👋 Thanks for using Paper Brain!")
                 break
             
@@ -511,10 +572,13 @@ if __name__ == "__main__":
                 continue
             
             try:
-                response = multi_paper_rag_with_documents(documents, query)
+                response = multi_paper_rag_with_documents(documents, query, logger)
                 print(f"\n{'─'*10}")
                 print("ANSWER")
                 print(f"{'─'*10}\n")
                 print(str(response))
             except Exception as e:
                 print(f"❌ Error: {e}")
+    else:
+        # Save session even if no documents
+        logger.save_session()
