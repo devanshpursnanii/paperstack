@@ -12,16 +12,18 @@ Architecture:
 from typing import List, Optional
 import numpy as np
 import time
+import asyncio
 from llama_index.core import VectorStoreIndex, Document, PromptTemplate
 from llama_index.core.schema import NodeWithScore
 from llama_index.core.query_engine import RetrieverQueryEngine, RouterQueryEngine
 from llama_index.core.tools import QueryEngineTool
 from llama_index.core.selectors import LLMSingleSelector
+from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from dotenv import load_dotenv
 import re
-from .retrieval import configure_settings, create_hybrid_retriever
+from .retrieval import configure_settings, create_hybrid_retriever, enhance_query_for_rag, llm_rerank_chunks
 from .logger import SessionLogger
-from .api_config import get_chat_llm
+from .api_config import get_chat_llm, get_embedding_model
 
 load_dotenv()
 
@@ -120,19 +122,53 @@ class TaskSpecificRetriever:
         self.logger = logger
     
     def retrieve(self, query: str) -> List[NodeWithScore]:
-        """Retrieve, apply MMR, compress, and format with citations."""
-        # Hybrid retrieval
-        hybrid_retriever = create_hybrid_retriever(self.index, top_k=self.top_k)
-        retrieved_nodes = hybrid_retriever.retrieve(query)
+        """Retrieve with query enhancement, proper embedding task type, and LLM reranking."""
+        # Generate 2 query variations
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        query_variations = loop.run_until_complete(enhance_query_for_rag(query))
+        loop.close()
         
-        # Paper-aware MMR
-        diverse_nodes = apply_mmr_diversity(retrieved_nodes, top_n=self.top_n, 
+        # Create query-specific embedding model
+        embedding_config = get_embedding_model()
+        query_embed_model = GoogleGenAIEmbedding(
+            model_name=embedding_config["model_name"],
+            api_key=embedding_config["api_key"],
+            task_type="RETRIEVAL_QUERY"  # For query embeddings
+        )
+        
+        # Retrieve with each query variation
+        all_nodes = []
+        seen_node_ids = set()
+        
+        for q_var in query_variations:
+            # Embed query with RETRIEVAL_QUERY task type
+            hybrid_retriever = create_hybrid_retriever(self.index, top_k=self.top_k)
+            retrieved = hybrid_retriever.retrieve(q_var)
+            
+            # Deduplicate
+            for node in retrieved:
+                node_id = node.node.node_id
+                if node_id not in seen_node_ids:
+                    all_nodes.append(node)
+                    seen_node_ids.add(node_id)
+        
+        # LLM reranking (adds 1 LLM call per query)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        reranked_nodes = loop.run_until_complete(
+            llm_rerank_chunks(query, all_nodes, top_n=min(self.top_k * 2, len(all_nodes)))
+        )
+        loop.close()
+        
+        # Paper-aware MMR on reranked results
+        diverse_nodes = apply_mmr_diversity(reranked_nodes, top_n=self.top_n, 
                                            lambda_param=self.lambda_param)
         
         # Compress if needed
         compressed_nodes = compress_if_needed(diverse_nodes, max_tokens=self.max_tokens)
         
-        # Log RAG chunks (after MMR and compression - these are the final chunks used)
+        # Log RAG chunks
         if self.logger:
             for node in compressed_nodes:
                 title = node.metadata.get('title', 'Unknown Paper')
@@ -142,14 +178,13 @@ class TaskSpecificRetriever:
                     score=node.score,
                     source=f"{title} (Page {page})",
                     metadata=node.metadata,
-                    retrieval_method="hybrid_mmr_compressed"
+                    retrieval_method="enhanced_query_reranked_mmr"
                 )
         
         # Format nodes with citation metadata
         for node in compressed_nodes:
             title = node.metadata.get('title', 'Unknown Paper')
             page = node.metadata.get('page_label', '?')
-            # Prepend citation to chunk text
             node.node.text = f"[{title}, Page {page}]\n{node.node.text}"
         
         return compressed_nodes
@@ -221,9 +256,9 @@ def create_qa_engine(index: VectorStoreIndex, prompts: dict, logger: Optional[Se
     """QA engine: precise, focused answers."""
     return create_task_engine(
         index=index,
-        top_k=5,
-        top_n=3,
-        lambda_param=0.5,
+        top_k=15,
+        top_n=5,
+        lambda_param=0.85,
         max_tokens=10000,
         prompt=prompts["qa"],
         logger=logger
@@ -260,9 +295,9 @@ def create_explain_engine(index: VectorStoreIndex, prompts: dict, logger: Option
     """Explanation engine: conceptual deep-dive."""
     return create_task_engine(
         index=index,
-        top_k=10,
+        top_k=18,
         top_n=6,
-        lambda_param=0.6,
+        lambda_param=0.8,
         max_tokens=18000,
         prompt=prompts["explain"],
         logger=logger

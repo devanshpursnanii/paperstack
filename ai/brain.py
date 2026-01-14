@@ -81,15 +81,24 @@ async def semantic_rewrite(query: str, logger: Optional[SessionLogger] = None) -
     Returns:
         Optimized search string (concise, keyword-focused)
     """
+    # Check if query looks like a paper title (capitalized words, sentence structure)
+    words = query.strip().split()
+    is_title = len(words) >= 3 and sum(1 for w in words if w[0].isupper()) >= len(words) * 0.6
+    
+    if is_title:
+        # Skip rewrite for likely paper titles - search verbatim
+        print(f"📄 Detected paper title: '{query}' (searching as-is)")
+        return query
+    
     llm = get_brain_llm(temperature=0.1)
     
     prompt = f"""You are a research paper search optimizer. Rewrite the user's query into an optimal arXiv search string.
 
 CONSTRAINTS:
-- Use technical terms and keywords
+- If the user enters a complete or partial title of a known paper, return the exact title unchanged
+- Use technical terms and keywords and focus on core concepts
 - use clean punctutation marks 
 - Remove filler words (e.g., "papers about", "research on")
-- Focus on core concepts
 - Keep domain-specific terminology
 
 USER QUERY: "{query}"
@@ -117,55 +126,93 @@ OUTPUT (search string only, no explanation):"""
     return optimized
 
 
-async def search_and_display(semantic_query: str, logger: Optional[SessionLogger] = None) -> str:
+async def search_and_display(semantic_query: str, search_mode: str = "topic", logger: Optional[SessionLogger] = None) -> str:
     """
-    Search arXiv, rank by relevance, display top 10 papers.
+    Search arXiv with mode-specific strategy: title OR topic search.
     
     Args:
         semantic_query: Optimized search query
+        search_mode: 'title' for title-only search, 'topic' for general search
         logger: Optional session logger
         
     Returns:
         Formatted display string with papers
     """
-    # Step 1: Search arXiv API
-    print(f"🔎 Searching arXiv for: {semantic_query}")
+    print(f"🔎 Searching arXiv ({search_mode} mode): {semantic_query}")
     
     base_url = 'http://export.arxiv.org/api/query'
-    params = {
-        'search_query': f'all:{semantic_query}',
-        'start': 0,
-        'max_results': 15,
-        'sortBy': 'relevance',
-        'sortOrder': 'descending'
-    }
     
-    try:
-        response = requests.get(base_url, params=params, timeout=15)
-        response.raise_for_status()
-        feed = feedparser.parse(response.content)
-        
-        if not feed.entries:
-            return "❌ No papers found. Try a different query."
-        
-        # Extract paper data
-        papers = []
-        for entry in feed.entries:
-            arxiv_id = entry.id.split('/abs/')[-1]
-            papers.append({
-                'title': entry.title.replace('\n', ' ').strip(),
-                'abstract': entry.summary.replace('\n', ' ').strip(),
-                'authors': ', '.join([a.name for a in entry.authors[:3]]),
-                'arxiv_id': arxiv_id,
-                'url': entry.link
-            })
-        
-        print(f"📥 Fetched {len(papers)} papers from arXiv")
-        
-    except Exception as e:
-        return f"❌ arXiv search failed: {e}"
+    if search_mode == "title":
+        # Title-only search: exact matching in paper titles
+        print(f"📄 Title search mode")
+        try:
+            params = {
+                'search_query': f'ti:"{semantic_query}"',
+                'start': 0,
+                'max_results': 15,
+                'sortBy': 'relevance',
+                'sortOrder': 'descending'
+            }
+            response = requests.get(base_url, params=params, timeout=15)
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            
+            if not feed.entries:
+                return "❌ No papers found with that title. Try 'topic' mode for broader search."
+            
+            papers = []
+            for entry in feed.entries:
+                arxiv_id = entry.id.split('/abs/')[-1]
+                papers.append({
+                    'title': entry.title.replace('\n', ' ').strip(),
+                    'abstract': entry.summary.replace('\n', ' ').strip(),
+                    'authors': ', '.join([a.name for a in entry.authors[:3]]),
+                    'arxiv_id': arxiv_id,
+                    'url': entry.link,
+                    'source_boost': 1.0
+                })
+            
+            print(f"📥 Found {len(papers)} papers from title search")
+            
+        except Exception as e:
+            return f"❌ Title search failed: {e}"
     
-    # Step 2: Rank by abstract similarity using ChromaDB
+    else:  # topic mode
+        # Topic search: broader search across abstracts, titles, etc.
+        print(f"🔍 Topic search mode")
+        try:
+            params = {
+                'search_query': f'all:{semantic_query}',
+                'start': 0,
+                'max_results': 15,
+                'sortBy': 'relevance',
+                'sortOrder': 'descending'
+            }
+            response = requests.get(base_url, params=params, timeout=15)
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            
+            if not feed.entries:
+                return "❌ No papers found. Try different keywords."
+            
+            papers = []
+            for entry in feed.entries:
+                arxiv_id = entry.id.split('/abs/')[-1]
+                papers.append({
+                    'title': entry.title.replace('\n', ' ').strip(),
+                    'abstract': entry.summary.replace('\n', ' ').strip(),
+                    'authors': ', '.join([a.name for a in entry.authors[:3]]),
+                    'arxiv_id': arxiv_id,
+                    'url': entry.link,
+                    'source_boost': 1.0
+                })
+            
+            print(f"📥 Found {len(papers)} papers from topic search")
+            
+        except Exception as e:
+            return f"❌ Topic search failed: {e}"
+    
+    # Step 3: Rank by abstract similarity using ChromaDB
     try:
         print("📊 Ranking papers by relevance: ")
         
@@ -196,13 +243,18 @@ async def search_and_display(semantic_query: str, logger: Optional[SessionLogger
             n_results=min(10, len(papers))
         )
         
-        # Build ranked list
+        # Build ranked list with source boost applied
         ranked = []
         for i, doc_id in enumerate(results['ids'][0]):
             idx = results['metadatas'][0][i]['index']
             paper = papers[idx].copy()
-            paper['score'] = 1.0 - results['distances'][0][i]
+            base_score = 1.0 - results['distances'][0][i]
+            # Apply boost from title matches
+            paper['score'] = base_score * paper['source_boost']
             ranked.append(paper)
+        
+        # Re-sort by boosted scores
+        ranked.sort(key=lambda x: x['score'], reverse=True)
         
         # Store in state
         state.add_results(ranked, semantic_query)

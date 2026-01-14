@@ -51,13 +51,15 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
-        "https://*.vercel.app"  # For production
+        "http://127.0.0.1:3000",
+        "http://192.168.0.106:3000",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
-
 
 # ==================
 # ENDPOINTS
@@ -119,7 +121,7 @@ async def brain_search(request: BrainSearchRequest):
     
     # Perform search
     try:
-        result = await web_brain_search(request.query, logger=session.logger)
+        result = await web_brain_search(request.query, search_mode=request.search_mode, logger=session.logger)
         
         # Check for errors
         if result.get("error"):
@@ -190,6 +192,12 @@ async def brain_load(request: BrainLoadRequest):
     
     # Load papers
     try:
+        # Add initial status
+        thinking_steps = [
+            {"step_number": 1, "description": f"Downloading {len(request.paper_ids)} papers from arXiv..."},
+            {"step_number": 2, "description": "Extracting text and building index..."},
+        ]
+        
         result = await web_brain_load_papers(request.paper_ids, logger=session.logger)
         
         if result.get("error"):
@@ -298,9 +306,12 @@ async def chat_message(request: ChatMessageRequest):
             "timestamp": datetime.now().isoformat()
         })
         
+        # Strip markdown formatting
+        clean_answer = result["answer"].replace("**", "")
+        
         return ChatMessageResponse(
             thinking_steps=[ThinkingStep(**step) for step in result["thinking_steps"]],
-            answer=result["answer"],
+            answer=clean_answer,
             citations=[Citation(**cite) for cite in result["citations"]],
             messages_remaining=session.quota.get_remaining_chat_messages(),
             error=None
@@ -325,7 +336,7 @@ async def get_session_info(session_id: str):
     
     - **session_id**: Session UUID
     
-    Returns session metadata, quota status, and log summary.
+    Returns session metadata, quota status, logs summary, and detailed logs.
     """
     # Get session
     session = get_session(session_id)
@@ -352,14 +363,17 @@ async def get_session_info(session_id: str):
             chat_messages_used=session.quota.chat_messages
         )
         
-        # Get logs summary
+        # Get logs summary and detailed logs
         logs_summary = session.logger.get_summary()
         
-        return SessionInfoResponse(
-            session_info=session_info,
-            logs_summary=logs_summary,
-            error=None
-        )
+        # Return with detailed logs for dashboard
+        return {
+            "session_info": session_info,
+            "logs_summary": logs_summary,
+            "llm_calls": session.logger.api_calls_llm,
+            "rag_chunks": session.logger.rag_chunks,
+            "error": None
+        }
         
     except Exception as e:
         return SessionInfoResponse(
@@ -412,8 +426,8 @@ async def health_check():
 # Cleanup old sessions on startup
 @app.on_event("startup")
 async def startup_event():
-    """Run cleanup on startup."""
-    deleted = cleanup_old_sessions(max_age_hours=24)
+    """Run cleanup on startup - only remove very old sessions.""" 
+    deleted = cleanup_old_sessions(max_age_hours=48)  # Changed from 24 to 48 hours
     print(f"✓ FastAPI started. Cleaned up {deleted} old sessions.")
 
 

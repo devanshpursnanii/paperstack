@@ -21,12 +21,13 @@ from .rag import multi_paper_rag_with_documents
 from .logger import SessionLogger
 
 
-async def web_brain_search(query: str, logger: Optional[SessionLogger] = None) -> Dict[str, Any]:
+async def web_brain_search(query: str, search_mode: str = "topic", logger: Optional[SessionLogger] = None) -> Dict[str, Any]:
     """
     Search arXiv papers with semantic rewriting and ranking.
     
     Args:
         query: User's research query
+        search_mode: 'title' for title-only search, 'topic' for general search
         logger: Optional session logger
         
     Returns:
@@ -52,11 +53,14 @@ async def web_brain_search(query: str, logger: Optional[SessionLogger] = None) -
     thinking_steps = []
     
     try:
-        # Step 1: Semantic rewrite
-        thinking_steps.append({"step": "rewriting", "status": "in_progress", "result": None})
+        # Step 1: Semantic rewrite (ONLY for topic mode)
+        semantic_query = query.strip()
         
-        llm = get_brain_llm(temperature=0.1)
-        prompt = f"""You are a research paper search optimizer. Rewrite the user's query into an optimal arXiv search string.
+        if search_mode == "topic":
+            thinking_steps.append({"step": "rewriting", "status": "in_progress", "result": None})
+            
+            llm = get_brain_llm(temperature=0.1)
+            prompt = f"""You are a research paper search optimizer. Rewrite the user's query into an optimal arXiv search string.
 
 CONSTRAINTS:
 - Use technical terms and keywords
@@ -68,41 +72,85 @@ CONSTRAINTS:
 USER QUERY: "{query}"
 
 OUTPUT (search string only, no explanation):"""
+            
+            start_time = time.time()
+            response = await llm.acomplete(prompt)
+            latency_ms = (time.time() - start_time) * 1000
+            
+            semantic_query = str(response).strip().strip('"')
+            
+            # Log LLM call
+            if logger:
+                logger.log_llm_call(
+                    call_type="semantic_rewrite",
+                    input_text=query,
+                    output_text=semantic_query,
+                    prompt_preview=prompt,
+                    latency_ms=latency_ms,
+                    temperature=0.1
+                )
+            
+            thinking_steps[-1] = {"step": "rewriting", "status": "complete", "result": semantic_query}
+        else:
+            # Title mode: Use original query for better matching
+            thinking_steps.append({"step": "preparing", "status": "complete", "result": f"Using exact title search: {query}"})
         
-        start_time = time.time()
-        response = await llm.acomplete(prompt)
-        latency_ms = (time.time() - start_time) * 1000
-        
-        semantic_query = str(response).strip().strip('"')
-        
-        # Log LLM call
-        if logger:
-            logger.log_llm_call(
-                call_type="semantic_rewrite",
-                input_text=query,
-                output_text=semantic_query,
-                prompt_preview=prompt,
-                latency_ms=latency_ms,
-                temperature=0.1
-            )
-        
-        thinking_steps[-1] = {"step": "rewriting", "status": "complete", "result": semantic_query}
-        
-        # Step 2: Search arXiv
+        # Step 2: Search arXiv with mode-based query
         thinking_steps.append({"step": "searching", "status": "in_progress", "result": None})
         
         base_url = 'http://export.arxiv.org/api/query'
-        params = {
-            'search_query': f'all:{semantic_query}',
-            'start': 0,
-            'max_results': 15,
-            'sortBy': 'relevance',
-            'sortOrder': 'descending'
-        }
         
-        response = requests.get(base_url, params=params, timeout=15)
-        response.raise_for_status()
-        feed = feedparser.parse(response.content)
+        if search_mode == "title":
+            # Title search: Use ORIGINAL query with normalization
+            # Try multiple variations for better results
+            search_queries = [
+                f'ti:"{query}"',  # Exact as entered
+                f'ti:"{query.title()}"',  # Title Case
+            ]
+            
+            feed = None
+            for search_q in search_queries:
+                params = {
+                    'search_query': search_q,
+                    'start': 0,
+                    'max_results': 15,
+                    'sortBy': 'relevance',
+                    'sortOrder': 'descending'
+                }
+                
+                response = requests.get(base_url, params=params, timeout=15)
+                response.raise_for_status()
+                feed = feedparser.parse(response.content)
+                
+                if feed.entries:
+                    break  # Found results, stop trying
+            
+            # Fallback to topic search if title search found nothing
+            if not feed or not feed.entries:
+                thinking_steps[-1] = {"step": "searching", "status": "in_progress", "result": "No exact title match, trying broader search..."}
+                params = {
+                    'search_query': f'all:{query}',
+                    'start': 0,
+                    'max_results': 15,
+                    'sortBy': 'relevance',
+                    'sortOrder': 'descending'
+                }
+                response = requests.get(base_url, params=params, timeout=15)
+                response.raise_for_status()
+                feed = feedparser.parse(response.content)
+        else:
+            # Topic mode: Use semantic rewritten query
+            params = {
+                'search_query': f'all:{semantic_query}',
+                'start': 0,
+                'max_results': 15,
+                'sortBy': 'relevance',
+                'sortOrder': 'descending'
+            }
+            
+            response = requests.get(base_url, params=params, timeout=15)
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
         
         if not feed.entries:
             return {
@@ -148,9 +196,10 @@ OUTPUT (search string only, no explanation):"""
                 ids=[f"paper_{i}"]
             )
         
-        # Query for top 10 matches
+        # Query for top 10 matches using ORIGINAL query (not rewritten)
+        # This preserves user intent and improves score alignment
         results = collection.query(
-            query_texts=[semantic_query],
+            query_texts=[query],  # Use original query, not semantic_query
             n_results=min(10, len(papers))
         )
         

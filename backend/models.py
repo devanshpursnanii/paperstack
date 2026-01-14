@@ -19,6 +19,8 @@ class BrainSearchRequest(BaseModel):
     """Request to search papers with Paper Brain."""
     session_id: str = Field(..., description="Session UUID")
     query: str = Field(..., description="Research query to search")
+    search_mode: str = Field(default="topic", description="Search mode: 'title' or 'topic'")
+    search_mode: str = Field(default="topic", description="Search mode: 'title' or 'topic'")
 
 
 class BrainLoadRequest(BaseModel):

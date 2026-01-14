@@ -1,16 +1,32 @@
-pypdf 
-langchain_text_splitters 
-chromadb 
-sentence_transformers
-numpy<2
-pandas
-google-generativeai
-sentence-transformers[cross-encoder]
-python-dotenv
-requests
-feedparser
-llama-index
-llama-index-retrievers-bm25
-llama-index-embeddings-google-genai 
-llama-index-llms-google-genai
-langchain
+# Core Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+# LlamaIndex RAG
+llama-index==0.12.4
+llama-index-core==0.12.4
+llama-index-embeddings-google-genai==0.4.0
+llama-index-llms-google-genai==0.6.0
+llama-index-retrievers-bm25==0.4.0
+
+# Google AI
+google-generativeai==0.8.3
+
+# Vector Store & Embeddings
+chromadb==0.5.20
+sentence-transformers==3.3.1
+
+# PDF Processing
+pypdf==5.1.0
+
+# Text Processing
+langchain==0.3.9
+langchain-text-splitters==0.3.2
+
+# Utilities
+python-dotenv==1.0.1
+requests==2.32.3
+feedparser==6.0.11
+pandas==2.2.3
+numpy<2.0.0
