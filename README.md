@@ -31,7 +31,7 @@ PaperStack is a production-grade RAG (Retrieval-Augmented Generation) system for
 
 ### Intelligent Paper Discovery
 - **Dual Search Modes**: Title-exact or topic-semantic search
-- **LLM Query Optimization**: Gemini 2.5 Flash query expansion for better discovery
+- **LLM Query Optimization**: Gemini 2.5 Flash Lite query expansion for better discovery
 - **Semantic Ranking**: ChromaDB vector search with relevance scoring
 - **Quota Management**: 3 searches per session with 15-min cooldown
 
@@ -46,7 +46,7 @@ PaperStack is a production-grade RAG (Retrieval-Augmented Generation) system for
 ### Production Architecture
 - **FastAPI Backend**: Async endpoints with proper error handling
 - **Next.js Frontend**: Server-side rendering with React 19
-- **Session Persistence**: In-memory sessions with 48-hour retention
+- **Session Persistence**: In-memory sessions 
 - **Auto-Recovery**: 404 session recovery with seamless recreation
 - **Comprehensive Logging**: LLM calls and RAG chunks tracked per session
 
