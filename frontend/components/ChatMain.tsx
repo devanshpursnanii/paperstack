@@ -11,6 +11,7 @@ export default function ChatMain() {
     messages,
     loading,
     sendMessage,
+    resetSession,
   } = useSession();
 
   const [input, setInput] = useState('');
@@ -52,9 +53,9 @@ export default function ChatMain() {
           </div>
           {messages.length > 0 && (
             <button
-              onClick={() => {
-                if (confirm('Clear all messages and loaded papers?')) {
-                  window.location.href = '/';
+              onClick={async () => {
+                if (confirm('Clear all messages and start new session?')) {
+                  await resetSession();
                 }
               }}
               className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-gray-900 border-2 border-gray-300 hover:border-gray-400 rounded-lg transition-all mr-2"

@@ -26,7 +26,8 @@ export default function Home() {
       setInitializing(false);
     };
     init();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   if (initializing) {
     return (

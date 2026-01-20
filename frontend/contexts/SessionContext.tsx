@@ -22,6 +22,7 @@ interface SessionContextType {
   refreshSessionInfo: () => Promise<void>;
   clearError: () => void;
   clearPapers: () => void;
+  resetSession: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -55,17 +56,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (sessionId) {
       refreshSessionInfo();
     }
-  }, []);
-
-  // Refresh session info periodically to get updated cooldowns
-  useEffect(() => {
-    if (!sessionId) return;
-
-    const interval = setInterval(() => {
-      refreshSessionInfo();
-    }, 60000); // Every minute
-
-    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   const createSession = async (query: string) => {
@@ -233,6 +224,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSelectedPaperIds([]);
   };
 
+  const resetSession = async () => {
+    // Clear all state
+    setPapers([]);
+    setSelectedPaperIds([]);
+    setMessages([]);
+    setSessionInfo(null);
+    
+    // Create new session
+    try {
+      await createSession('New Session');
+    } catch (err) {
+      console.error('Failed to create new session:', err);
+    }
+  };
+
   const refreshSessionInfo = async () => {
     if (!sessionId) return;
 
@@ -287,6 +293,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         refreshSessionInfo,
         clearError,
         clearPapers,
+        resetSession,
       }}
     >
       {children}
