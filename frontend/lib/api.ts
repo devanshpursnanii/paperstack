@@ -17,18 +17,45 @@ export class APIError extends Error {
   }
 }
 
+// Get token from localStorage
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('paperstack_token');
+}
+
+// Handle 401 responses by clearing token and reloading
+function handleUnauthorized() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('paperstack_token');
+  window.location.reload();
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   try {
+    const token = getToken();
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...options?.headers,
+    };
+
+    // Add Authorization header if token exists
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       mode: 'cors',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...options?.headers,
-      },
+      headers,
     });
+
+    // Handle 401 Unauthorized
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new APIError(401, 'Unauthorized - please log in again');
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

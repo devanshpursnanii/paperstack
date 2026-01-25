@@ -10,35 +10,10 @@ import { Loader2, AlertCircle, X } from 'lucide-react';
 
 export default function Home() {
   const { sessionId, error, loading, createSession, clearError } = useSession();
-  const [initializing, setInitializing] = useState(true);
+  const [initializing, setInitializing] = useState(false); // Changed to false - no auto-init
 
-  // Create session on mount
-  useEffect(() => {
-    const init = async () => {
-      if (!sessionId) {
-        try {
-          await createSession('Research session');
-        } catch (err) {
-          console.error('Failed to create session:', err);
-          // Don't show error toast on initial load failure
-        }
-      }
-      setInitializing(false);
-    };
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
-
-  if (initializing) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-900 mx-auto mb-2" />
-          <p className="text-sm text-gray-600">Initializing session...</p>
-        </div>
-      </div>
-    );
-  }
+  // Don't auto-create session on mount - let user start when ready
+  // Session will be created when user performs first action
 
   return (
     <div className="flex h-screen flex-col bg-gray-50">

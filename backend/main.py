@@ -1,22 +1,30 @@
 """
 FastAPI Backend for Paper Brain AI
 
-5 Endpoints:
-1. POST /session/create - Create new session
-2. POST /brain/search - Search papers with Paper Brain
-3. POST /brain/load - Load selected papers
-4. POST /chat/message - Send message to Paper Chat
-5. GET /session/{session_id}/info - Get session info and logs
+Endpoints:
+1. POST /auth/validate - Validate access token
+2. POST /session/create - Create new session
+3. POST /brain/search - Search papers with Paper Brain
+4. POST /brain/load - Load selected papers
+5. POST /chat/message - Send message to Paper Chat
+6. GET /session/{session_id}/info - Get session info and logs
+7. GET /metrics/{session_id} - Get session metrics
 """
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 import sys
 import os
 from datetime import datetime
 import asyncio
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,32 +47,83 @@ from ai.api_config import QuotaExhaustedError
 
 
 # ==================
+# AUTHENTICATION
+# ==================
+
+# Get access token from environment
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "welcometopaperstack1")
+
+class AuthRequest(BaseModel):
+    """Request model for auth validation."""
+    token: str
+
+class AuthResponse(BaseModel):
+    """Response model for auth validation."""
+    valid: bool
+    message: str = ""
+
+def verify_token(token: str) -> bool:
+    """Verify if the provided token matches the access token."""
+    return token == ACCESS_TOKEN
+
+
+# ==================
 # DB INITIALIZATION
 # ==================
 
 def bootstrap_database():
-    """Initialize database if it doesn't exist."""
-    from backend.db.connection import DB_PATH, get_connection
+    """Initialize database based on DATABASE_TYPE (sqlite or postgres)."""
+    from backend.db.connection import DATABASE_TYPE, SQLITE_DB_PATH, get_connection
     from pathlib import Path
     
-    if not DB_PATH.exists():
-        print("📊 Database not found. Creating logs.db...")
-        
-        # Read schema
-        schema_path = Path(__file__).parent / "db" / "schema.sql"
-        with open(schema_path, 'r') as f:
-            schema_sql = f.read()
-        
-        # Create database and execute schema
-        conn = get_connection()
+    print(f"📊 Initializing {DATABASE_TYPE.upper()} database...")
+    
+    if DATABASE_TYPE == "sqlite":
+        # Check if SQLite database file exists
+        if not SQLITE_DB_PATH.exists():
+            print(f"📊 Database not found. Creating {SQLITE_DB_PATH}...")
+            
+            # Read SQLite schema
+            schema_path = Path(__file__).parent / "db" / "schema.sql"
+            with open(schema_path, 'r') as f:
+                schema_sql = f.read()
+            
+            # Create database and execute schema
+            conn = get_connection()
+            try:
+                conn.executescript(schema_sql)
+                conn.commit()
+                print("✅ SQLite database initialized successfully")
+            finally:
+                conn.close()
+        else:
+            print(f"✅ Database already exists at {SQLITE_DB_PATH}")
+    
+    elif DATABASE_TYPE == "postgres":
+        # For PostgreSQL, just verify connection (schema should be run manually in Supabase)
         try:
-            conn.executescript(schema_sql)
-            conn.commit()
-            print("✅ Database initialized successfully")
-        finally:
+            conn = get_connection()
+            cursor = conn.cursor()
+            
+            # Check if tables exist
+            cursor.execute("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_name IN ('sessions', 'requests', 'chunks')
+            """)
+            existing_tables = [row['table_name'] for row in cursor.fetchall()]
+            
+            if len(existing_tables) == 3:
+                print("✅ PostgreSQL connection successful. All tables exist.")
+            else:
+                missing = set(['sessions', 'requests', 'chunks']) - set(existing_tables)
+                print(f"⚠️  PostgreSQL connected but missing tables: {missing}")
+                print(f"   Run backend/db/schema_postgres.sql in Supabase SQL editor")
+            
             conn.close()
-    else:
-        print("✅ Database already exists at", DB_PATH)
+        except Exception as e:
+            print(f"❌ Failed to connect to PostgreSQL: {e}")
+            print(f"   Check your .env file credentials")
+            raise
 
 
 # ==================
@@ -90,6 +149,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
+        "http://192.168.0.104:3000",  # Added for local network
         "http://192.168.0.106:3000",
         "http://192.168.0.107:3000"
     ],
@@ -99,6 +159,55 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
+
+# Authentication Middleware
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Check authentication for all routes except /auth/validate and OPTIONS requests."""
+    # CRITICAL: Skip OPTIONS requests (CORS preflight)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    
+    # Skip auth check for these paths
+    if request.url.path in ["/auth/validate", "/", "/docs", "/openapi.json", "/redoc"]:
+        return await call_next(request)
+    
+    # Check Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Missing or invalid authorization header", "error_type": "unauthorized"}
+        )
+    
+    token = auth_header.replace("Bearer ", "")
+    if not verify_token(token):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Invalid access token", "error_type": "unauthorized"}
+        )
+    
+    # Token is valid, proceed
+    return await call_next(request)
+
+
+# ==================
+# AUTHENTICATION ENDPOINT
+# ==================
+
+@app.post("/auth/validate", response_model=AuthResponse)
+async def validate_token(request: AuthRequest):
+    """
+    Validate an access token.
+    Public endpoint - no authentication required.
+    """
+    is_valid = verify_token(request.token)
+    
+    if is_valid:
+        return AuthResponse(valid=True, message="Token is valid")
+    else:
+        return AuthResponse(valid=False, message="Invalid token")
+
 
 # ==================
 # ENDPOINTS
@@ -522,6 +631,13 @@ async def get_session_metrics(session_id: str):
                 req['completion_tokens']
             )
             
+            # Convert datetime to ISO string if needed
+            created_at_str = req['created_at']
+            if hasattr(created_at_str, 'isoformat'):
+                created_at_str = created_at_str.isoformat()
+            elif not isinstance(created_at_str, str):
+                created_at_str = str(created_at_str)
+            
             requests_with_chunks.append(MetricsRequest(
                 request_id=req['request_id'],
                 query=req['query'],
@@ -533,7 +649,7 @@ async def get_session_metrics(session_id: str):
                 total_latency_ms=req['total_latency_ms'],
                 operation_type=req['operation_type'],
                 status=req['status'],
-                created_at=req['created_at'],
+                created_at=created_at_str,
                 chunks=chunks
             ))
         

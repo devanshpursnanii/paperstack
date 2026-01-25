@@ -201,7 +201,34 @@ export default function ChatMain() {
                     <span>Generating response...</span>
                   </div>
                 ) : (
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  <div className="text-sm whitespace-pre-wrap break-words">
+                    {message.content.split('\n').map((line, i) => {
+                      // Handle bullet points
+                      if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+                        return (
+                          <div key={i} className="ml-4 my-1">
+                            {line}
+                          </div>
+                        );
+                      }
+                      // Handle numbered lists
+                      if (/^\d+\./.test(line.trim())) {
+                        return (
+                          <div key={i} className="ml-4 my-1">
+                            {line}
+                          </div>
+                        );
+                      }
+                      // Handle bold text with **text**
+                      const boldFormatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                      // Handle code blocks with `code`
+                      const codeFormatted = boldFormatted.replace(/`([^`]+)`/g, '<code class="bg-gray-200 px-1 rounded">$1</code>');
+                      
+                      return (
+                        <div key={i} className={line.trim() === '' ? 'h-4' : 'my-1'} dangerouslySetInnerHTML={{ __html: codeFormatted }} />
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>

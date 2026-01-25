@@ -51,13 +51,46 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionId]);
 
-  // Load session info on mount if sessionId exists
+  // Persist messages to localStorage
   useEffect(() => {
-    if (sessionId) {
-      refreshSessionInfo();
+    if (sessionId && messages.length > 0) {
+      localStorage.setItem(`paperstack_messages_${sessionId}`, JSON.stringify(messages));
     }
+  }, [sessionId, messages]);
+
+  // Load session data on mount ONLY if we have both sessionId and token
+  // This runs after AuthGuard has validated the token
+  useEffect(() => {
+    const initializeSession = async () => {
+      if (!sessionId || typeof window === 'undefined') return;
+      
+      const token = localStorage.getItem('paperstack_token');
+      if (!token) return; // No token means not authenticated yet
+      
+      // Restore messages from localStorage
+      const savedMessages = localStorage.getItem(`paperstack_messages_${sessionId}`);
+      if (savedMessages) {
+        try {
+          setMessages(JSON.parse(savedMessages));
+        } catch (e) {
+          console.error('Failed to restore messages:', e);
+        }
+      }
+      
+      // Try to refresh session info (might fail if session expired)
+      try {
+        await refreshSessionInfo();
+      } catch (err) {
+        // Session doesn't exist anymore, that's okay
+        console.log('Could not restore session, will create new one');
+      }
+    };
+    
+    // Small delay to ensure AuthGuard has finished validating
+    const timeoutId = setTimeout(initializeSession, 100);
+    return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, []); // Only run once on mount
 
   const createSession = async (query: string) => {
     try {
@@ -75,6 +108,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setPapers([]);
       setSelectedPaperIds([]);
       
+      // Clear old messages from localStorage
+      if (sessionId) {
+        localStorage.removeItem(`paperstack_messages_${sessionId}`);
+      }
+      
       // Fetch session info
       await refreshSessionInfo();
     } catch (err) {
@@ -85,15 +123,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
 
   const searchPapers = async (query: string, searchMode: 'title' | 'topic' = 'topic') => {
+    // Auto-create session if it doesn't exist
     if (!sessionId) {
-      setError('No active session');
+      try {
+        await createSession('Research session');
+      } catch (err) {
+        setError('Failed to create session');
+        return;
+      }
+    }
+
+    // Session should exist now (either from before or just created)
+    const currentSessionId = sessionId || localStorage.getItem('paperstack_session_id');
+    if (!currentSessionId) {
+      setError('Failed to initialize session');
       return;
     }
 
     try {
       setLoading(true);
       setError(null);
-      const response = await api.searchPapers(sessionId, query, searchMode);
+      const response = await api.searchPapers(currentSessionId, query, searchMode);
       
       if (response.error) {
         if (response.error.startsWith('quota_exhausted')) {

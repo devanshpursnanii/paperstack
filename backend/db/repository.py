@@ -5,7 +5,23 @@ No FastAPI imports, no AI imports, only database operations.
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from .connection import get_connection
+from .connection import get_connection, DATABASE_TYPE
+
+
+def _build_query(query: str) -> str:
+    """
+    Replace ? placeholders with correct placeholder for current database.
+    
+    Args:
+        query: SQL query with ? placeholders
+        
+    Returns:
+        Query with correct placeholders (? for SQLite, %s for Postgres)
+    """
+    if DATABASE_TYPE == "postgres":
+        # Replace ? with %s for PostgreSQL
+        return query.replace("?", "%s")
+    return query
 
 
 def create_session(session_id: str, session_start_ts: Optional[datetime] = None) -> None:
@@ -19,10 +35,15 @@ def create_session(session_id: str, session_start_ts: Optional[datetime] = None)
     conn = get_connection()
     try:
         ts = session_start_ts or datetime.now()
-        conn.execute(
-            "INSERT OR IGNORE INTO sessions (session_id, session_start_ts) VALUES (?, ?)",
-            (session_id, ts)
-        )
+        
+        # Use INSERT ... ON CONFLICT for Postgres, INSERT OR IGNORE for SQLite
+        if DATABASE_TYPE == "postgres":
+            query = "INSERT INTO sessions (session_id, session_start_ts) VALUES (%s, %s) ON CONFLICT (session_id) DO NOTHING"
+        else:
+            query = "INSERT OR IGNORE INTO sessions (session_id, session_start_ts) VALUES (?, ?)"
+        
+        cursor = conn.cursor()
+        cursor.execute(query, (session_id, ts))
         conn.commit()
     finally:
         conn.close()
@@ -48,14 +69,17 @@ def insert_request(request_data: Dict[str, Any]) -> None:
     """
     conn = get_connection()
     try:
-        conn.execute(
-            """
+        query = _build_query("""
             INSERT INTO requests (
                 request_id, session_id, query, prompt_tokens, total_chunk_tokens,
                 completion_tokens, llm_latency_ms, total_latency_ms, 
                 operation_type, status, error_message
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """)
+        
+        cursor = conn.cursor()
+        cursor.execute(
+            query,
             (
                 request_data['request_id'],
                 request_data['session_id'],
@@ -89,13 +113,16 @@ def insert_chunks(request_id: str, chunks: List[Dict[str, Any]]) -> None:
     """
     conn = get_connection()
     try:
-        conn.executemany(
-            """
+        query = _build_query("""
             INSERT INTO chunks (
                 request_id, chunk_index, paper_title, 
                 content_preview, chunk_token_count
             ) VALUES (?, ?, ?, ?, ?)
-            """,
+            """)
+        
+        cursor = conn.cursor()
+        cursor.executemany(
+            query,
             [
                 (
                     request_id,
@@ -124,14 +151,14 @@ def get_requests_by_session(session_id: str) -> List[Dict[str, Any]]:
     """
     conn = get_connection()
     try:
-        cursor = conn.execute(
-            """
+        query = _build_query("""
             SELECT * FROM requests 
             WHERE session_id = ? 
             ORDER BY created_at DESC
-            """,
-            (session_id,)
-        )
+            """)
+        
+        cursor = conn.cursor()
+        cursor.execute(query, (session_id,))
         return [dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()
@@ -149,10 +176,9 @@ def get_request_by_id(request_id: str) -> Optional[Dict[str, Any]]:
     """
     conn = get_connection()
     try:
-        cursor = conn.execute(
-            "SELECT * FROM requests WHERE request_id = ?",
-            (request_id,)
-        )
+        query = _build_query("SELECT * FROM requests WHERE request_id = ?")
+        cursor = conn.cursor()
+        cursor.execute(query, (request_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
     finally:
@@ -171,14 +197,14 @@ def get_chunks_by_request(request_id: str) -> List[Dict[str, Any]]:
     """
     conn = get_connection()
     try:
-        cursor = conn.execute(
-            """
+        query = _build_query("""
             SELECT * FROM chunks 
             WHERE request_id = ? 
             ORDER BY chunk_index
-            """,
-            (request_id,)
-        )
+            """)
+        
+        cursor = conn.cursor()
+        cursor.execute(query, (request_id,))
         return [dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()
@@ -196,8 +222,7 @@ def get_session_metrics(session_id: str) -> Dict[str, Any]:
     """
     conn = get_connection()
     try:
-        cursor = conn.execute(
-            """
+        query = _build_query("""
             SELECT 
                 COUNT(*) as total_requests,
                 AVG(llm_latency_ms) as avg_llm_latency,
@@ -208,9 +233,10 @@ def get_session_metrics(session_id: str) -> Dict[str, Any]:
                 SUM(prompt_tokens + total_chunk_tokens + completion_tokens) as total_tokens
             FROM requests
             WHERE session_id = ? AND status = 'success'
-            """,
-            (session_id,)
-        )
+            """)
+        
+        cursor = conn.cursor()
+        cursor.execute(query, (session_id,))
         row = cursor.fetchone()
         return dict(row) if row else {}
     finally:
@@ -229,14 +255,14 @@ def get_recent_requests(limit: int = 10) -> List[Dict[str, Any]]:
     """
     conn = get_connection()
     try:
-        cursor = conn.execute(
-            """
+        query = _build_query("""
             SELECT * FROM requests 
             ORDER BY created_at DESC 
             LIMIT ?
-            """,
-            (limit,)
-        )
+            """)
+        
+        cursor = conn.cursor()
+        cursor.execute(query, (limit,))
         return [dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()

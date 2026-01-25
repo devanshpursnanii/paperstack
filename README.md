@@ -2,14 +2,15 @@
 
 <div align="center">
 
-**AI-Powered Research Assistant with Citation-Grounded Responses**
+**AI-Powered Research Assistant with Citation-Grounded Multi-Paper RAG**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.1+-black.svg)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19.0+-61DAFB.svg)](https://reactjs.org/)
 
-[Features](#features) • [Architecture](#architecture) • [Installation](#installation) • [Usage](#usage) • [API](#api-documentation) • [Contributing](#contributing)
+[Demo](#demo) • [Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Architecture](#architecture)
 
 </div>
 
@@ -17,86 +18,165 @@
 
 ## Overview
 
-PaperStack is a production-grade RAG (Retrieval-Augmented Generation) system for academic research. It combines intelligent paper discovery with citation-grounded question answering, ensuring every response is traceable to exact sources.
+PaperStack is a full-stack AI system for academic research combining intelligent arXiv paper discovery with multi-paper RAG (Retrieval-Augmented Generation) chat. Every response is citation-backed, traceable to exact paper sources with page numbers.
+
+### What Makes It Different
+
+- **Dual-System Architecture**: Paper Brain (discovery) + Paper Chat (RAG)
+- **Task-Aware Retrieval**: Automatic routing (QA/Summarize/Compare/Explain) with task-specific parameters
+- **Paper-Aware MMR**: Ensures diverse coverage across multiple papers
+- **Real-Time Metrics**: Token usage, latency tracking, chunk analysis per request
+- **Token-Based Access**: Demo protection with browser-close state management
 
 ### Key Components
 
-- **PaperBrain** — Semantic paper discovery and ranking from arXiv
-- **PaperChat** — Citation-enforced Q&A over selected research papers
-- **Session Management** — Persistent sessions with quota limits and activity tracking
+- **Paper Brain** — Agent-based semantic search with ChromaDB ranking (top 10 from 15 results)
+- **Paper Chat** — Intelligent multi-paper RAG with hybrid retrieval (Vector + BM25)
+- **Session Management** — In-memory sessions with quota limits, PostgreSQL metrics persistence
+- **Metrics Dashboard** — Real-time visualization of tokens, latencies, and chunk usage
+
+---
+
+## Demo
+
+**Access Token**: Contact via resume or project description
+
+**Try It**:
+1. Enter access token
+2. Search: "attention mechanisms in transformers"
+3. Load papers (select 2-3)
+4. Ask: "Compare the attention mechanisms across these papers"
+5. View real-time metrics in sidebar
+
+---
+
+## Features
+
+### Paper Discovery (Paper Brain)
+- ✅ Semantic query rewriting with LLM
+- ✅ arXiv API integration (15 papers fetched)
+- ✅ ChromaDB re-ranking (top 10 displayed)
+- ✅ Title detection (bypasses rewrite for known papers)
+- ✅ Agent-based refinement with tools
+
+### Multi-Paper RAG (Paper Chat)
+- ✅ Hybrid retrieval (Vector + BM25 fusion)
+- ✅ Query enhancement (2 variations per query)
+- ✅ LLM reranking (top 20 chunks)
+- ✅ Paper-aware MMR diversity (λ=0.5-0.8 depending on task)
+- ✅ Token compression (18K context limit)
+- ✅ Inline citations [Paper Title, Page X]
+- ✅ Task routing (4 strategies: QA/Summarize/Compare/Explain)
+
+### Session & Metrics
+- ✅ Session-based state management
+- ✅ Per-request metrics (tokens, latency, chunks)
+- ✅ Real-time dashboard updates
+- ✅ Message persistence (localStorage)
+- ✅ Quota enforcement (3 searches, 5 messages)
+
+### Authentication & Security
+- ✅ Token-based access control
+- ✅ Bearer token authentication
+- ✅ CORS configuration
+- ✅ Browser-close state cleanup
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Python 3.11+**
+- **Node.js 18+**
+- **Google Gemini API Keys** ([Get free tier](https://aistudio.google.com/app/apikey))
+
+### Installation
+
+```bash
+# 1. Clone repository
+git clone https://github.com/yourusername/paperstack.git
+cd paperstack
+
+# 2. Install backend dependencies
+pip install -r requirements.txt
+
+# 3. Install frontend dependencies
+cd frontend && npm install && cd ..
+
+# 4. Configure environment
+cp .env.example .env
+# Edit .env: Add GOOGLE_API_KEY1 and GOOGLE_API_KEY2
+
+# 5. Start servers
+./start.sh
+```
+
+**Access**: http://localhost:3000  
+**Token**: Set in .env (default: "welcometopaperstack1")
+
+---
+
+## Documentation
+
+### Technical Deep Dives
+- **[System Architecture](TECHNICAL.md)** - Complete system overview, data flows, component communication
+- **[AI Module](ai/README.md)** - Paper Brain, RAG pipeline, retrieval strategies
+- **[Backend API](backend/README.md)** - FastAPI endpoints, session management, auth
+- **[Database Layer](backend/db/README.md)** - SQLite/PostgreSQL abstraction, schema, repository pattern
+- **[Frontend](frontend/README.md)** - Next.js architecture, state management, components
+
+### Setup Guides
+- **[Authentication](AUTH_GUIDE.md)** - Token setup, browser state management
+- **[Deployment](DEPLOYMENT.md)** - Production deployment guide
+- **[Supabase Setup](SUPABASE_SETUP.md)** - PostgreSQL cloud database configuration
 
 ---
 
 ## Architecture
 
-### Technical Stack
+### System Stack
 
-**Backend**
-- FastAPI + LlamaIndex
-- Google Gemini 2.5 Flash (generation)
-- text-embedding-004 (embeddings)
-- ChromaDB (vector store)
-- BM25 (keyword search)
-
-**Frontend**
-- Next.js 16 + React 19
-- TypeScript + Tailwind CSS
-- Lucide Icons
+```
+Frontend (Next.js 16 + React 19)
+  ↓ REST API (Bearer Token Auth)
+Backend (FastAPI + Python)
+  ↓ Function Calls
+AI Module (LlamaIndex + Gemini)
+  ↓ External APIs
+Google Gemini 2.5 Flash | arXiv API | ChromaDB
+  ↓ Persistence
+PostgreSQL/SQLite (Metrics)
+```
 
 ### RAG Pipeline
 
 ```
 User Query
-  ↓
-Multi-Query Generation (2 variations)
-  ↓
-Hybrid Retrieval (Vector + BM25)
-  ↓
-Reciprocal Rank Fusion
-  ↓
-LLM Reranking (Top 20)
-  ↓
-MMR Diversification (λ=0.85)
-  ↓
-Response Generation + Citations
+  → Query Enhancement (2 variations)
+  → Hybrid Retrieval (Vector + BM25)
+  → LLM Reranking (Top 20)
+  → Paper-Aware MMR (Diversity)
+  → Token Compression (18K limit)
+  → Citation Generation
+  → Metrics Persistence
 ```
 
-### Paper Search Pipeline
+**Task Routing**: Automatic classification into QA (λ=0.8), Summarize (λ=0.6), Compare (λ=0.5), Explain (λ=0.7)
+
+### Paper Brain Pipeline
 
 ```
 User Query
-  ↓
-[Title Mode] Original Query + Caps Variants → arXiv ti: search
-[Topic Mode] LLM Query Expansion → arXiv all: search
-  ↓
-Semantic Ranking (ChromaDB)
-  ↓
-Score Normalization (0-100)
-  ↓
-Top 10 Papers
+  → Semantic Rewrite (LLM)
+  → arXiv Search (15 papers)
+  → ChromaDB Ranking (semantic similarity)
+  → Top 10 Papers
+  → Agent Loop (search_more | load_papers)
+  → PDF Ingestion (pypdf, in-memory)
 ```
 
 ---
-
-## Installation
-
-### Prerequisites
-
-- **Python 3.10+** (tested with 3.10)
-- **Node.js 18+** (tested with 18.x)
-- **npm** or **yarn**
-- **Google API Key** ([Get one here](https://aistudio.google.com/app/apikey))
-
-### 1. Clone Repository
-
-```bash
-git clone https://github.com/devanshpursnanii/research-asst-rag.git
-cd research-asst-rag
-```
-
-### 2. Backend Setup
-
-#### Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
