@@ -243,6 +243,40 @@ def get_session_metrics(session_id: str) -> Dict[str, Any]:
         conn.close()
 
 
+def get_session_query_metrics(session_id: str) -> List[Dict[str, Any]]:
+    """
+    Get individual query metrics for a session (for frontend display).
+    
+    Args:
+        session_id: Session identifier
+        
+    Returns:
+        List of query metrics with details
+    """
+    conn = get_connection()
+    try:
+        query = _build_query("""
+            SELECT 
+                request_id,
+                query,
+                prompt_tokens,
+                total_chunk_tokens,
+                completion_tokens,
+                llm_latency_ms,
+                total_latency_ms,
+                created_at
+            FROM requests
+            WHERE session_id = ? AND status = 'success'
+            ORDER BY created_at ASC
+            """)
+        
+        cursor = conn.cursor()
+        cursor.execute(query, (session_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def get_recent_requests(limit: int = 10) -> List[Dict[str, Any]]:
     """
     Get most recent requests across all sessions.

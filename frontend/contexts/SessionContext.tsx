@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from '@/lib/api';
-import type { SessionInfo, Paper, Message } from '@/types';
+import type { SessionInfo, Paper, Message, QueryMetric } from '@/types';
 
 interface SessionContextType {
   sessionId: string | null;
@@ -10,6 +10,7 @@ interface SessionContextType {
   papers: Paper[];
   selectedPaperIds: string[];
   messages: Message[];
+  queryMetrics: QueryMetric[];
   loading: boolean;
   error: string | null;
   
@@ -39,6 +40,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [queryMetrics, setQueryMetrics] = useState<QueryMetric[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -296,6 +298,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const response = await api.getSessionInfo(sessionId);
       if (!response.error) {
         setSessionInfo(response.session_info);
+        
+        // Update query metrics if available
+        if (response.query_metrics) {
+          setQueryMetrics(response.query_metrics);
+        }
       }
     } catch (err) {
       // If session not found (404), clear it and create a new one
@@ -333,6 +340,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         papers,
         selectedPaperIds,
         messages,
+        queryMetrics,
         loading,
         error,
         createSession,

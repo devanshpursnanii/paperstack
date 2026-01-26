@@ -624,10 +624,15 @@ async def get_session_info(session_id: str):
         # Get logs summary and detailed logs
         logs_summary = session.logger.get_summary()
         
+        # Get query metrics from database
+        from backend.db import repository
+        query_metrics = repository.get_session_query_metrics(session_id)
+        
         # Return with detailed logs for dashboard
         return {
             "session_info": session_info,
             "logs_summary": logs_summary,
+            "query_metrics": query_metrics,
             "llm_calls": session.logger.api_calls_llm,
             "rag_chunks": session.logger.rag_chunks,
             "error": None

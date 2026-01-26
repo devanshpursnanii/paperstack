@@ -57,6 +57,17 @@ export interface SessionInfo {
   chat_messages_used: number;
 }
 
+export interface QueryMetric {
+  request_id: string;
+  query: string;
+  prompt_tokens: number;
+  total_chunk_tokens: number;
+  completion_tokens: number;
+  llm_latency_ms: number;
+  total_latency_ms: number;
+  created_at: string;
+}
+
 // API Response types
 export interface CreateSessionResponse {
   session_id: string;
@@ -89,5 +100,6 @@ export interface ChatMessageResponse {
 export interface SessionInfoResponse {
   session_info: SessionInfo;
   logs_summary: any;
+  query_metrics?: QueryMetric[];
   error?: string;
 }
