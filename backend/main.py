@@ -178,9 +178,10 @@ app.add_middleware(
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """Check authentication for all routes except /auth/validate and OPTIONS requests."""
-    # CRITICAL: Skip OPTIONS requests (CORS preflight)
+    # CRITICAL: Skip OPTIONS requests (CORS preflight) - must be first
     if request.method == "OPTIONS":
-        return await call_next(request)
+        response = await call_next(request)
+        return response
     
     # Skip auth check for these paths
     if request.url.path in ["/auth/validate", "/", "/health", "/docs", "/openapi.json", "/redoc"]:
@@ -248,7 +249,16 @@ async def health_check():
 @app.options("/auth/validate")
 async def auth_validate_options():
     """Handle CORS preflight for auth validation."""
-    return JSONResponse(content={"status": "ok"})
+    from fastapi.responses import Response
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "3600",
+        }
+    )
 
 
 @app.post("/auth/validate", response_model=AuthResponse)
