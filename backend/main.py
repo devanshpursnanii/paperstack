@@ -160,6 +160,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
+        "http://192.168.0.101:3000",  # Current network IP
         "http://192.168.0.104:3000",  # Local network
         "http://192.168.0.106:3000",
         "http://192.168.0.107:3000",
@@ -378,7 +379,7 @@ async def brain_search(request: Request, brain_request: BrainSearchRequest):
     
     # Perform search
     try:
-        result = await web_brain_search(request.query, search_mode=request.search_mode, logger=session.logger)
+        result = await web_brain_search(brain_request.query, search_mode=brain_request.search_mode, logger=session.logger)
         
         # Check for errors
         if result.get("error"):
@@ -406,7 +407,7 @@ async def brain_search(request: Request, brain_request: BrainSearchRequest):
         
         # Add to history
         session.brain_history.append({
-            "query": request.query,
+            "query": brain_request.query,
             "papers_found": len(result["papers"]),
             "timestamp": datetime.now().isoformat()
         })
@@ -560,7 +561,7 @@ async def send_message(request: Request, chat_request: ChatMessageRequest):
         
         # Add to history
         session.chat_history.append({
-            "message": request.message,
+            "message": chat_request.message,
             "answer": result["answer"],
             "timestamp": datetime.now().isoformat()
         })
@@ -579,7 +580,7 @@ async def send_message(request: Request, chat_request: ChatMessageRequest):
         # Log to database asynchronously (don't block response)
         if result.get("metrics"):
             asyncio.create_task(log_chat_metrics_async(
-                session_id=request.session_id,
+                session_id=chat_request.session_id,
                 metrics=result["metrics"]
             ))
         
