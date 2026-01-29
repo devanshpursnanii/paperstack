@@ -128,8 +128,9 @@ def bootstrap_database():
             conn.close()
         except Exception as e:
             print(f"❌ Failed to connect to PostgreSQL: {e}")
-            print(f"   Check your .env file credentials")
-            raise
+            print(f"   Check your DATABASE_URL environment variable")
+            # Don't raise - allow app to start even if database check fails
+            # The app will fail on first request that needs DB, which is better than crashing on startup
 
 
 # ==================
@@ -146,12 +147,17 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Initialize database on startup
+# Initialize database and cleanup old sessions on startup
 @app.on_event("startup")
 async def startup_event():
-    """Run startup tasks."""
-    bootstrap_database()
-    print("✓ FastAPI started. Cleaned up old sessions.")
+    """Run startup tasks: initialize database and cleanup old sessions."""
+    try:
+        bootstrap_database()
+        deleted = cleanup_old_sessions(max_age_hours=48)
+        print(f"✓ FastAPI started successfully. Cleaned up {deleted} old sessions.")
+    except Exception as e:
+        print(f"⚠️  Startup warning: {e}")
+        # Don't crash on startup - allow app to start even if cleanup fails
 
 # CORS Configuration for Next.js frontend
 app.add_middleware(
@@ -779,14 +785,6 @@ async def health_check():
         "status": "healthy",
         "active_sessions": get_session_count()
     }
-
-
-# Cleanup old sessions on startup
-@app.on_event("startup")
-async def startup_event():
-    """Run cleanup on startup - only remove very old sessions.""" 
-    deleted = cleanup_old_sessions(max_age_hours=48)  # Changed from 24 to 48 hours
-    print(f"✓ FastAPI started. Cleaned up {deleted} old sessions.")
 
 
 if __name__ == "__main__":
