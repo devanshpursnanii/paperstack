@@ -4,7 +4,7 @@ from typing import List, Optional
 from llama_index.core import VectorStoreIndex, Settings, PromptTemplate, Document
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.core.retrievers import QueryFusionRetriever
-from llama_index.core.retrievers import BM25Retriever
+from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.schema import NodeWithScore
 from dotenv import load_dotenv

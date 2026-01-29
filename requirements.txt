@@ -7,6 +7,7 @@ pydantic>=2.8.0,<3.0.0
 llama-index>=0.11.0,<0.15.0
 llama-index-embeddings-google-genai>=0.2.0
 llama-index-llms-google-genai>=0.2.0
+llama-index-retrievers-bm25>=0.2.0
 
 # Google AI
 google-generativeai>=0.7.0,<0.9.0
