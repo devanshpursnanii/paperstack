@@ -26,14 +26,14 @@ export default function Header() {
             <span>GitHub</span>
           </a>
           <a
-            href="/logs"
+            href="/app/logs"
             className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
           >
             <ScrollText className="h-4 w-4" />
             <span>Logs</span>
           </a>
           <a
-            href="/about"
+            href="/app/about"
             className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
           >
             <Info className="h-4 w-4" />

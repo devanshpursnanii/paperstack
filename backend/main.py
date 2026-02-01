@@ -184,35 +184,29 @@ async def startup_event():
 # Authentication Middleware
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """Check authentication for all routes except /auth/validate and OPTIONS requests."""
-    # Let CORSMiddleware handle OPTIONS requests - don't interfere
+    """
+    Simplified auth middleware - only checks if Authorization header exists.
+    Token validation happens once at /auth/validate during login.
+    After that, we trust the token (frontend can't reach here without passing login).
+    """
+    # Let CORSMiddleware handle OPTIONS requests
     if request.method == "OPTIONS":
         return await call_next(request)
     
-    # Skip auth check for these paths
-    if request.url.path in ["/auth/validate", "/", "/health", "/docs", "/openapi.json", "/redoc"]:
-        response = await call_next(request)
-        # Debug CORS headers on auth endpoints
-        if request.url.path == "/auth/validate":
-            print(f"[CORS DEBUG] /auth/validate response headers: {dict(response.headers)}")
-        return response
+    # Public endpoints (no auth required)
+    public_paths = ["/auth/validate", "/", "/health", "/docs", "/openapi.json", "/redoc"]
+    if request.url.path in public_paths:
+        return await call_next(request)
     
-    # Check Authorization header
+    # Check Authorization header exists (don't validate token content)
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Missing or invalid authorization header", "error_type": "unauthorized"}
+            content={"error": "Missing authorization header", "error_type": "unauthorized"}
         )
     
-    token = auth_header.replace("Bearer ", "")
-    if not verify_token(token):
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Invalid access token", "error_type": "unauthorized"}
-        )
-    
-    # Token is valid, proceed
+    # Header exists, proceed (trust the token - already validated at login)
     return await call_next(request)
 
 

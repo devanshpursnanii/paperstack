@@ -60,35 +60,52 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionId, messages]);
 
-  // Load session data on mount ONLY if we have both sessionId and token
-  // This runs after AuthGuard has validated the token
+  // Auto-create session on mount when token exists
   useEffect(() => {
     const initializeSession = async () => {
-      if (!sessionId || typeof window === 'undefined') return;
+      if (typeof window === 'undefined') return;
       
       const token = localStorage.getItem('paperstack_token');
       if (!token) return; // No token means not authenticated yet
       
-      // Restore messages from localStorage
-      const savedMessages = localStorage.getItem(`paperstack_messages_${sessionId}`);
-      if (savedMessages) {
+      // Check if we already have a valid session
+      if (sessionId) {
+        // Restore messages from localStorage
+        const savedMessages = localStorage.getItem(`paperstack_messages_${sessionId}`);
+        if (savedMessages) {
+          try {
+            setMessages(JSON.parse(savedMessages));
+          } catch (e) {
+            console.error('Failed to restore messages:', e);
+          }
+        }
+        
+        // Try to refresh session info (might fail if session expired)
         try {
-          setMessages(JSON.parse(savedMessages));
-        } catch (e) {
-          console.error('Failed to restore messages:', e);
+          await refreshSessionInfo();
+          return; // Session is still valid
+        } catch (err) {
+          console.log('Existing session expired, creating new one');
         }
       }
       
-      // Try to refresh session info (might fail if session expired)
+      // No session or expired - create new one automatically
       try {
-        await refreshSessionInfo();
+        const response = await api.createSession('Research session');
+        if (response.error) {
+          console.error('Failed to auto-create session:', response.error);
+          return;
+        }
+        setSessionId(response.session_id);
+        setMessages([]);
+        setPapers([]);
+        setSelectedPaperIds([]);
       } catch (err) {
-        // Session doesn't exist anymore, that's okay
-        console.log('Could not restore session, will create new one');
+        console.error('Failed to auto-create session:', err);
       }
     };
     
-    // Small delay to ensure AuthGuard has finished validating
+    // Small delay to ensure component is mounted
     const timeoutId = setTimeout(initializeSession, 100);
     return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
